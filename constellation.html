@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Eudaimonia Constellation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Spectral:ital,wght@0,400;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: one full-bleed night sky canvas; a quiet title top-left, an observatory readout and controls along the bottom. Single dark look by design. */
+  :root {
+    --sky: #060a14;
+    --sky-2: #0d1630;
+    --ink: #dfe6f7;
+    --muted: #7d8aa8;
+    --gold: #f0d08a;
+    --rule: rgba(223, 230, 247, 0.14);
+    --font-display: "Marcellus", "Trajan Pro", Georgia, serif;
+    --font-body: "Spectral", Georgia, "Times New Roman", serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--sky);
+    color: var(--ink);
+    font-family: var(--font-body);
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #sky {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    display: block; cursor: grab; touch-action: none; outline: none;
+  }
+  #sky.dragging { cursor: grabbing; }
+  #sky:focus-visible { box-shadow: inset 0 0 0 2px var(--gold); }
+
+  .masthead {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: calc(env(safe-area-inset-top, 0px) + 20px) 20px 0;
+    display: flex; flex-direction: column; gap: 6px;
+    pointer-events: none;
+  }
+  .masthead h1 {
+    margin: 0; font-family: var(--font-display); font-weight: 400;
+    font-size: 1.25rem; letter-spacing: 0.32em; text-transform: uppercase;
+  }
+  .masthead p {
+    margin: 0; max-width: 34ch; color: var(--muted);
+    font-size: 0.95rem; font-style: italic; line-height: 1.45;
+  }
+
+  .reveal {
+    position: fixed; left: 16px; right: 16px; text-align: center;
+    font-family: var(--font-body); color: var(--gold);
+    opacity: 0; transform: translateY(6px);
+    transition: opacity 1.2s ease, transform 1.2s ease;
+    pointer-events: none;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .reveal.on { opacity: 1; transform: none; }
+  .reveal .greek { font-size: 1.35rem; letter-spacing: 0.06em; }
+  .reveal .gloss { color: var(--ink); font-style: italic; font-size: 1rem; opacity: 0.85; }
+
+  .console {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 0 20px calc(env(safe-area-inset-bottom, 0px) + 18px);
+    display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px;
+  }
+  .readout {
+    font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em;
+    color: var(--muted); display: flex; flex-direction: column; gap: 8px; min-width: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .readout .coords { display: flex; gap: 18px; }
+  .readout b { color: var(--ink); font-weight: 500; }
+  .meter { display: flex; align-items: center; gap: 10px; }
+  .meter .track { width: 140px; max-width: 40vw; height: 2px; background: var(--rule); position: relative; }
+  .meter .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--gold); transition: width 0.15s linear; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  button {
+    font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink); background: rgba(13, 22, 48, 0.7);
+    border: 1px solid var(--rule); border-radius: 2px;
+    padding: 10px 14px; cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  button:hover { border-color: var(--gold); color: var(--gold); }
+  button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+</style>
+</head>
+<body>
+
+<canvas id="sky" tabindex="0" aria-label="Star field. Drag, or use the arrow keys, to rotate the sky until the stars spell a word."></canvas>
+
+<header class="masthead">
+  <h1>Eudaimonia</h1>
+  <p id="hint">Drag to turn the sky. At one angle, these stars spell a word.</p>
+</header>
+
+<div class="reveal" id="reveal" aria-live="polite">
+  <span class="greek">εὐδαιμονία</span>
+  <span class="gloss">flourishing: the good life, lived well</span>
+</div>
+
+<footer class="console">
+  <div class="readout">
+    <div class="coords"><span>AZ <b id="az">000.0°</b></span><span>ALT <b id="alt">+00.0°</b></span></div>
+    <div class="meter"><span>ALIGNMENT</span><span class="track"><span class="fill" id="fill"></span></span></div>
+  </div>
+  <div class="actions">
+    <button id="scatter" type="button">Scatter the stars</button>
+    <button id="solve" type="button">Show me</button>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const canvas = document.getElementById('sky');
+  const ctx = canvas.getContext('2d');
+  const $ = id => document.getElementById(id);
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Seeded random so the sky is the same every visit
+  let seed = 1952890;
+  const rand = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+
+  // Stroke font: each letter is a set of polylines on a 4 x 6 grid (y down)
+  const A_BAR = 0.867;
+  const GLYPHS = {
+    E: [[[4,0],[0,0],[0,6],[4,6]], [[0,3],[3,3]]],
+    U: [[[0,0],[0,4.5],[1.2,6],[2.8,6],[4,4.5],[4,0]]],
+    D: [[[0,0],[0,6],[2.4,6],[4,4.3],[4,1.7],[2.4,0],[0,0]]],
+    A: [[[0,6],[2,0],[4,6]], [[A_BAR,3.4],[4 - A_BAR,3.4]]],
+    I: [[[2,0],[2,6]], [[1,0],[3,0]], [[1,6],[3,6]]],
+    M: [[[0,6],[0,0],[2,3.2],[4,0],[4,6]]],
+    O: [[[1.2,0],[2.8,0],[4,1.5],[4,4.5],[2.8,6],[1.2,6],[0,4.5],[0,1.5],[1.2,0]]],
+    N: [[[0,6],[0,0],[4,6],[4,0]]]
+  };
+  const WORD = 'EUDAIMONIA';
+  const ADV = 5.6;
+  const WORD_W = (WORD.length - 1) * ADV + 4;
+  const DEPTH = WORD_W * 0.55;
+
+  const stars = [];   // {x,y,z,r,letter,phase,speed}
+  const lines = [];   // [i, j]
+
+  [...WORD].forEach((ch, li) => {
+    const ox = li * ADV - WORD_W / 2, oy = -3;
+    const seen = new Map();
+    const starAt = (x, y) => {
+      const k = x.toFixed(2) + ',' + y.toFixed(2);
+      if (seen.has(k)) return seen.get(k);
+      stars.push({ x: ox + x, y: oy + y, z: (rand() * 2 - 1) * DEPTH, r: 1.1 + rand() * 0.8, letter: true, phase: rand() * 6.28, speed: 0.6 + rand() * 1.4 });
+      seen.set(k, stars.length - 1);
+      return stars.length - 1;
+    };
+    for (const poly of GLYPHS[ch]) {
+      for (let p = 0; p < poly.length - 1; p++) {
+        const [ax, ay] = poly[p], [bx, by] = poly[p + 1];
+        const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 2.2));
+        for (let k = 0; k < n; k++) {
+          const t0 = k / n, t1 = (k + 1) / n;
+          const i = starAt(ax + (bx - ax) * t0, ay + (by - ay) * t0);
+          const j = starAt(ax + (bx - ax) * t1, ay + (by - ay) * t1);
+          lines.push([i, j]);
+        }
+      }
+    }
+  });
+
+  // Decoy stars share the same 3D space but stay clear of the word at the solved angle
+  for (let n = 0; n < 240;) {
+    const x = (rand() * 2 - 1) * WORD_W * 0.8;
+    const y = (rand() * 2 - 1) * WORD_W * 0.45;
+    if (Math.abs(x) < WORD_W / 2 + 3 && Math.abs(y) < 6.5) continue;
+    stars.push({ x, y, z: (rand() * 2 - 1) * DEPTH, r: 0.4 + Math.pow(rand(), 2) * 1.6, letter: false, phase: rand() * 6.28, speed: 0.4 + rand() * 1.6 });
+    n++;
+  }
+
+  // View state
+  let yaw = 2.31, pitch = 0.87;
+  let vYaw = 0, vPitch = 0;
+  let dragging = false, touched = false, tween = null, locked = false;
+  const TAU = Math.PI * 2;
+  const wrap = a => { a = (a + Math.PI) % TAU; if (a < 0) a += TAU; return a - Math.PI; };
+  const offAngle = () => Math.hypot(wrap(yaw), wrap(pitch));
+
+  // Canvas sizing + fixed background dust
+  let W = 0, H = 0, dpr = 1, scale = 1, cx = 0, cy = 0, dust = [];
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    scale = Math.min(W * 0.86 / WORD_W, H * 0.4 / 6);
+    cx = W / 2; cy = H * 0.47;
+    dust = [];
+    const count = Math.round(W * H / 2600);
+    for (let i = 0; i < count; i++) dust.push([Math.random() * W, Math.random() * H, Math.random() * 0.5 + 0.15, Math.random()]);
+    const rv = $('reveal');
+    rv.style.top = (cy + 3 * scale + 28) + 'px';
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Pointer rotation
+  let lastX = 0, lastY = 0, lastT = 0;
+  const SENS = 0.0065;
+  canvas.addEventListener('pointerdown', e => {
+    dragging = true; touched = true; tween = null; locked = false;
+    canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging');
+    lastX = e.clientX; lastY = e.clientY; lastT = performance.now(); vYaw = vPitch = 0;
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const now = performance.now(), dt = Math.max(1, now - lastT);
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    yaw += dx * SENS; pitch -= dy * SENS;
+    vYaw = dx * SENS * (16 / dt); vPitch = -dy * SENS * (16 / dt);
+    lastX = e.clientX; lastY = e.clientY; lastT = now;
+  });
+  const end = () => { dragging = false; canvas.classList.remove('dragging'); if (performance.now() - lastT > 80) vYaw = vPitch = 0; };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+
+  canvas.addEventListener('keydown', e => {
+    const step = (e.shiftKey ? 0.5 : 2) * Math.PI / 180;
+    const map = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
+    if (!map[e.key]) return;
+    e.preventDefault(); touched = true; tween = null; locked = false;
+    yaw += map[e.key][0]; pitch += map[e.key][1];
+  });
+
+  // Animated moves
+  const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  function moveTo(ty, tp, ms) {
+    touched = true; locked = false; vYaw = vPitch = 0;
+    if (reduceMotion) ms = 1;
+    tween = { fy: yaw, fp: pitch, ty, tp, t0: performance.now(), ms };
+  }
+  $('solve').addEventListener('click', () => moveTo(yaw - wrap(yaw), pitch - wrap(pitch), 2200));
+  $('scatter').addEventListener('click', () => {
+    let ty, tp;
+    do {
+      ty = yaw + (rand() < 0.5 ? -1 : 1) * (1.2 + rand() * 2.2);
+      tp = (rand() * 2 - 1) * 1.25;
+    } while (Math.hypot(wrap(ty), wrap(tp)) < 0.9);
+    moveTo(ty, tp, 1800);
+  });
+
+  // Colors
+  const COOL = [223, 230, 247], GOLD = [240, 208, 138];
+  const mix = (a, b, t) => [0, 1, 2].map(i => Math.round(a[i] + (b[i] - a[i]) * t));
+
+  const proj = new Float32Array(stars.length * 3);
+  const azEl = $('az'), altEl = $('alt'), fillEl = $('fill'), revealEl = $('reveal'), hintEl = $('hint');
+  const HINT = hintEl.textContent;
+
+  function frame(now) {
+    const t = now / 1000;
+
+    // Update motion
+    if (tween) {
+      const k = Math.min(1, (now - tween.t0) / tween.ms), e = ease(k);
+      yaw = tween.fy + (tween.ty - tween.fy) * e;
+      pitch = tween.fp + (tween.tp - tween.fp) * e;
+      if (k >= 1) tween = null;
+    } else if (!dragging) {
+      if (!touched && !reduceMotion) yaw += 0.0007;
+      yaw += vYaw; pitch += vPitch;
+      vYaw *= 0.93; vPitch *= 0.93;
+      if (Math.abs(vYaw) < 1e-5) vYaw = 0;
+      if (Math.abs(vPitch) < 1e-5) vPitch = 0;
+      // Gentle snap once close
+      const off = offAngle();
+      if (touched && off < 0.075 && Math.abs(vYaw) + Math.abs(vPitch) < 0.004) {
+        yaw -= wrap(yaw) * 0.12; pitch -= wrap(pitch) * 0.12;
+        if (off < 0.002) { yaw -= wrap(yaw); pitch -= wrap(pitch); }
+      }
+    }
+    const off = offAngle();
+    const nowLocked = off < 0.003 && !dragging;
+    if (nowLocked !== locked) {
+      locked = nowLocked;
+      revealEl.classList.toggle('on', locked);
+      hintEl.textContent = locked ? 'Aligned. Drag again to scatter them.' : HINT;
+    }
+    const align = Math.max(0, 1 - off / 0.5);
+    const a = align * align;
+
+    // Readout
+    let az = (wrap(yaw) * 180 / Math.PI + 360) % 360;
+    const alt = wrap(pitch) * 180 / Math.PI;
+    azEl.textContent = az.toFixed(1).padStart(5, '0') + '°';
+    altEl.textContent = (alt >= 0 ? '+' : '−') + Math.abs(alt).toFixed(1).padStart(4, '0') + '°';
+    fillEl.style.width = (align * 100).toFixed(1) + '%';
+
+    // Background
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.75);
+    g.addColorStop(0, '#0d1630'); g.addColorStop(1, '#060a14');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    for (const [x, y, r, p] of dust) {
+      ctx.globalAlpha = 0.25 + 0.2 * (reduceMotion ? 0.5 : Math.sin(t * 0.7 + p * 20));
+      ctx.fillStyle = '#9fb0d6';
+      ctx.fillRect(x, y, r, r);
+    }
+    ctx.globalAlpha = 1;
+
+    // Project stars
+    const cY = Math.cos(yaw), sY = Math.sin(yaw), cP = Math.cos(pitch), sP = Math.sin(pitch);
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      const x1 = s.x * cY + s.z * sY;
+      const z1 = -s.x * sY + s.z * cY;
+      const y2 = s.y * cP - z1 * sP;
+      const z2 = s.y * sP + z1 * cP;
+      proj[i * 3] = cx + x1 * scale;
+      proj[i * 3 + 1] = cy + y2 * scale;
+      proj[i * 3 + 2] = z2;
+    }
+
+    // Constellation lines
+    const lc = mix(COOL, GOLD, a);
+    ctx.strokeStyle = `rgba(${lc[0]},${lc[1]},${lc[2]},${0.1 + 0.55 * a})`;
+    ctx.lineWidth = 0.6 + 0.7 * a;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const [i, j] of lines) {
+      ctx.moveTo(proj[i * 3], proj[i * 3 + 1]);
+      ctx.lineTo(proj[j * 3], proj[j * 3 + 1]);
+    }
+    ctx.stroke();
+
+    // Stars
+    const sizeK = Math.max(0.8, Math.min(1.5, scale / 9));
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      const depth = 1 - proj[i * 3 + 2] / (DEPTH * 2.2);
+      const tw = reduceMotion ? 1 : 0.78 + 0.22 * Math.sin(t * s.speed + s.phase);
+      let r = s.r * depth * sizeK, alpha = Math.min(1, 0.55 + 0.45 * depth) * tw, col = COOL;
+      if (s.letter) { r *= 1 + 0.45 * a; col = mix(COOL, GOLD, a); alpha = Math.min(1, alpha + 0.3 * a); }
+      else alpha *= 1 - 0.45 * a;
+      const px = proj[i * 3], py = proj[i * 3 + 1];
+      ctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},${alpha * 0.12})`;
+      ctx.beginPath(); ctx.arc(px, py, r * 3.2, 0, TAU); ctx.fill();
+      ctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},${alpha})`;
+      ctx.beginPath(); ctx.arc(px, py, r, 0, TAU); ctx.fill();
+    }
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
