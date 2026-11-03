@@ -1,49 +1,63 @@
 # Eudaimonia
 
-> *"Making a program for the ages."*
+A decentralized, Discord-style chat platform: communities hosted on independently run
+**nodes**, users identified by their own keys, voice through a per-node LiveKit SFU.
 
-## What is eudaimonia?
+The architecture research and the language decision (Go backend, React frontend) are in
+[docs/RESEARCH.md](docs/RESEARCH.md). The code is currently a skeleton: the development
+environment, container images, a Go node with health endpoints, and the React app.
 
-**Eudaimonia** (Greek: εὐδαιμονία, pronounced *yoo-dye-MOH-nee-uh*) is a central idea in ancient Greek ethics, usually translated as **"flourishing,"** **"living well,"** or **"human well-being."** It is often rendered as "happiness," but that translation can mislead: eudaimonia is not a passing feeling or mood. It describes a whole life that is going well — a life lived to its fullest potential.
+## Layout
 
-### Etymology
+```
+backend/    Go node: cmd/server, internal/{config,httpapi}, migrations/, Dockerfile
+frontend/   React 19 + TypeScript + Vite app, nginx image for production
+docs/       Research and decision records
+devenv.nix  Reproducible dev environment (Go, Node, Postgres, LiveKit, linters)
+compose.yaml  Full stack in Docker: postgres, livekit, backend, frontend
+```
 
-The word combines two parts:
+## Develop
 
-- **eu** (εὖ) — "good" or "well"
-- **daimōn** (δαίμων) — "spirit" or "guiding divinity"
+Requires [Nix](https://nixos.org) and [devenv](https://devenv.sh); `direnv allow` is
+optional and activates the shell automatically.
 
-Literally, it means something like "having a good guiding spirit," a sense of being well-favored in how one's life unfolds.
+```bash
+devenv shell
+```
 
-### Aristotle's view
+```bash
+devenv up
+```
 
-The idea is most closely associated with **Aristotle**, especially his *Nicomachean Ethics*. For Aristotle:
+`devenv up` starts Postgres 18 (127.0.0.1:5432), LiveKit in dev mode (127.0.0.1:7880), the
+backend with live reload (http://localhost:8080) and Vite (http://localhost:5173, which
+proxies `/api` and `/ws` to the backend). Inside the shell:
 
-- Eudaimonia is the **highest human good** — the one thing we pursue for its own sake, while everything else (wealth, honor, pleasure) is pursued for the sake of it.
-- It consists in **"activity of the soul in accordance with virtue" (aretē)** — that is, consistently exercising excellence of character and reason.
-- It is achieved **over a complete life**, not in a single moment. As he put it, "one swallow does not make a spring."
-- It requires both **moral virtues** (courage, temperance, justice, generosity) and **intellectual virtues** (wisdom, practical judgment), and it is supported by reasonable external goods such as friendship, health, and community.
-
-### Other schools of thought
-
-- **Socrates and Plato** linked eudaimonia closely to virtue and knowledge — to know the good is to do the good, and the virtuous person is the truly flourishing one.
-- **The Stoics** held that virtue alone is sufficient for eudaimonia; external circumstances are "indifferent."
-- **The Epicureans** tied it to *ataraxia* (tranquility) and the absence of pain, achieved through simple pleasures and friendship.
-
-### Eudaimonia vs. hedonic happiness
-
-| Eudaimonic well-being | Hedonic well-being |
+| Command | Purpose |
 |---|---|
-| Meaning, purpose, growth | Pleasure, comfort, enjoyment |
-| Realizing one's potential | Feeling good in the moment |
-| Judged over a whole life | Judged moment to moment |
+| `backend-test` | gofmt, go vet, go test |
+| `frontend-build` | type-check and bundle the React app |
+| `db-migrate` / `db-status` | run / inspect goose migrations |
+| `lint-docker` | hadolint on both Dockerfiles |
+| `devenv test` | all of the above |
 
-Modern positive psychology still uses this distinction, studying "eudaimonic" well-being (purpose, autonomy, personal growth) alongside "hedonic" well-being (positive emotion and life satisfaction).
+Copy `.env.example` to `.env` to override any setting; every value has a dev default.
 
-## In short
+## Run the stack in Docker
 
-Eudaimonia is **flourishing through living well** — developing your character and abilities, acting with virtue, and building a life of meaning and purpose over time.
+```bash
+docker compose up --build
+```
 
-## License
+Frontend on http://localhost:3000, backend on http://localhost:8080, LiveKit on
+ws://localhost:7880. The backend image is a static binary on distroless (non-root); the
+frontend image is nginx serving the Vite bundle and proxying `/api` and `/ws`.
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+## Status
+
+- Backend endpoints: `GET /healthz`, `GET /readyz`, `GET /api/v1/node`; `GET /ws` returns
+  501 until the event protocol exists.
+- No database schema yet; the migrations directory is empty by design.
+- Both Dockerfiles pass hadolint and `compose.yaml` passes `docker compose config`, but no image
+  has been built on this machine (Docker is not installed here).

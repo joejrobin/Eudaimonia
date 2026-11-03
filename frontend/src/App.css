@@ -1,0 +1,45 @@
+.app {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 3rem 1rem;
+  text-align: left;
+}
+
+.tagline {
+  opacity: 0.75;
+}
+
+.node {
+  margin-top: 2rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 0.75rem;
+}
+
+.node h2 {
+  margin-top: 0;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+}
+
+.node dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1.25rem;
+  margin: 0;
+}
+
+.node dt {
+  opacity: 0.7;
+}
+
+.node dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.error {
+  color: #d9534f;
+}

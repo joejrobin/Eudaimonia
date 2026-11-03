@@ -1,0 +1,80 @@
+# Full stack for one Eudaimonia node: Postgres, LiveKit SFU, Go backend, React frontend.
+#   docker compose up --build
+# Frontend: http://localhost:3000   Backend: http://localhost:8080   LiveKit: ws://localhost:7880
+# Variables come from .env (see .env.example); every one has a development default.
+name: eudaimonia
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-eudaimonia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eudaimonia}
+      POSTGRES_DB: ${POSTGRES_DB:-eudaimonia}
+    volumes:
+      # PostgreSQL 18 images keep the cluster under /var/lib/postgresql/<major>/docker.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    ports:
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+
+  livekit:
+    image: livekit/livekit-server:v1.13
+    # Config is passed inline so the API key pair stays in one place (.env).
+    # In production on Linux prefer `network_mode: host` and a wide UDP range,
+    # per https://docs.livekit.io/transport/self-hosting/deployment/
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        log_level: info
+        rtc:
+          tcp_port: 7881
+          port_range_start: 50000
+          port_range_end: 50050
+          use_external_ip: false
+        keys:
+          ${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-secret}
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50050:50000-50050/udp"
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      args:
+        VERSION: ${VERSION:-dev}
+    environment:
+      BACKEND_ADDR: ":8080"
+      NODE_NAME: ${NODE_NAME:-dev-node}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://${POSTGRES_USER:-eudaimonia}:${POSTGRES_PASSWORD:-eudaimonia}@postgres:5432/${POSTGRES_DB:-eudaimonia}?sslmode=disable
+      LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
